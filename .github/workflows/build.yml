@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target.os }} / ${{ matrix.target.arch }})
+    runs-on: ${{ matrix.target.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+          - os: macos
+            arch: x86_64
+            runner: macos-13
+            rust_target: x86_64-apple-darwin
+          - os: macos
+            arch: aarch64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+          - os: windows
+            arch: aarch64
+            runner: windows-latest
+            rust_target: aarch64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.rust_target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target.rust_target }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Linux dependencies
+        if: matrix.target.os == 'linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libglib2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Usage Indicator ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for details."
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target.rust_target }}

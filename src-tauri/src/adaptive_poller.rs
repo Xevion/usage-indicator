@@ -181,7 +181,7 @@ impl TimeWindowedTracker {
         samples.windows(2).fold(0u8, |total, w| {
             if w[1] > w[0] {
                 let change = w[1] - w[0];
-                if max_change.map_or(true, |max| change <= max) {
+                if max_change.is_none_or(|max| change <= max) {
                     total.saturating_add(change)
                 } else {
                     total
@@ -198,23 +198,6 @@ impl TimeWindowedTracker {
 
     fn calculate_weekly_momentum(&self, window: Duration, now: Instant) -> u8 {
         self.calculate_momentum(window, now, |m| m.weekly_pct(), None)
-    }
-
-    fn detect_six_hour_reset(&self) -> bool {
-        if self.history.len() < 2 {
-            return false;
-        }
-
-        let last_two: Vec<_> = self.history.values().rev().take(2).collect();
-        if last_two.len() < 2 {
-            return false;
-        }
-
-        let latest = last_two[0].six_hour_pct();
-        let previous = last_two[1].six_hour_pct();
-
-        // Reset detected: significant drop (>20%)
-        previous > latest && (previous - latest) > 20
     }
 
     fn time_since_any_change(&self, now: Instant) -> Duration {

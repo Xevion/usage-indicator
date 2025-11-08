@@ -1,5 +1,4 @@
 mod adaptive_poller;
-mod system_events;
 
 use adaptive_poller::{AdaptivePoller, PollerConfig, UsageMetrics};
 use serde::{Deserialize, Serialize};
@@ -382,7 +381,7 @@ fn update_tray_icon(
                         // Parse ISO 8601 timestamp and format it nicely
                         s.split('T')
                             .next()
-                            .map(|date| format!("{}", date))
+                            .map(|date| date.to_string())
                             .unwrap_or_else(|| s.clone())
                     })
                     .unwrap_or_else(|| "Unknown".to_string())
@@ -537,11 +536,8 @@ pub fn run() {
             TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
+                .on_menu_event(|app, event| if event.id.as_ref() == "quit" {
+                    app.exit(0);
                 })
                 .build(app)?;
 

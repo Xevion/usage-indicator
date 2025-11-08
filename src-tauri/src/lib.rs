@@ -3,11 +3,14 @@ mod system_events;
 
 use adaptive_poller::{AdaptivePoller, PollerConfig, UsageMetrics};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use wreq::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use wreq::ClientBuilder;
@@ -419,7 +422,7 @@ fn update_tray_icon(
     Ok(())
 }
 
-async fn start_polling(app: AppHandle) {
+async fn start_polling(app: AppHandle, cancel_token: CancellationToken) {
     use std::time::SystemTime;
 
     // Initialize adaptive poller with config from environment
@@ -430,11 +433,18 @@ async fn start_polling(app: AppHandle) {
     let mut current_state = DataState::Unknown;
 
     loop {
-        let now = Instant::now();
+        // Check for cancellation signal
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                info!("Shutdown signal received, stopping polling gracefully");
+                break;
+            }
+            _ = async {
+                let now = Instant::now();
 
-        info!("Fetching usage data...");
+                info!("Fetching usage data...");
 
-        match fetch_usage_data().await {
+                match fetch_usage_data().await {
             Ok(data) => {
                 // Convert API response to metrics (rounding to 1% resolution)
                 let metrics = UsageMetrics::new(
@@ -494,6 +504,8 @@ async fn start_polling(app: AppHandle) {
                 sleep(min_interval).await;
             }
         }
+            } => {}
+        }
     }
 }
 
@@ -535,12 +547,48 @@ pub fn run() {
 
             info!("Tray icon created successfully");
 
+            // Create cancellation token for graceful shutdown
+            let cancel_token = CancellationToken::new();
+            let cancel_clone = cancel_token.clone();
+
+            // Create shutdown flag to prevent infinite exit loop
+            let shutdown_started = Arc::new(AtomicBool::new(false));
+
             // Start background polling task
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(start_polling(app_handle));
+            tauri::async_runtime::spawn(start_polling(app_handle, cancel_clone));
+
+            // Store state for shutdown handling
+            app.manage(cancel_token);
+            app.manage(shutdown_started);
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                // Check if shutdown has already been initiated
+                let shutdown_flag = app_handle.state::<Arc<AtomicBool>>();
+
+                if shutdown_flag.swap(true, Ordering::SeqCst) {
+                    // Shutdown already initiated, allow exit to proceed
+                    return;
+                }
+
+                info!("Exit requested, initiating graceful shutdown");
+
+                // Prevent immediate exit to perform cleanup
+                api.prevent_exit();
+
+                // Get cancellation token and trigger shutdown
+                let token = app_handle.state::<CancellationToken>();
+                token.cancel();
+
+                info!("Graceful shutdown complete, tray icon will be cleaned up automatically");
+
+                // Trigger exit again - this time the flag is set so it won't prevent
+                app_handle.exit(0);
+            }
+        });
 }

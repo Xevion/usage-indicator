@@ -61,4 +61,4 @@ jobs:
         run: bunx tsc --noEmit
 
       - name: Check formatting
-        run: bunx biome check .
+        run: bun format:check

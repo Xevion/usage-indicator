@@ -14,11 +14,15 @@ use tracing::{error, info};
 use wreq::ClientBuilder;
 use wreq::header::{COOKIE, HeaderMap, HeaderValue, USER_AGENT};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum FetchError {
     Network(String),
     Parse(String),
     Auth(String),
+    RateLimited {
+        message: String,
+        retry_after: Option<u64>,
+    },
 }
 
 impl std::fmt::Display for FetchError {
@@ -27,20 +31,187 @@ impl std::fmt::Display for FetchError {
             FetchError::Network(msg) => write!(f, "Network error: {}", msg),
             FetchError::Parse(msg) => write!(f, "Parse error: {}", msg),
             FetchError::Auth(msg) => write!(f, "Auth error: {}", msg),
+            FetchError::RateLimited {
+                message,
+                retry_after,
+            } => {
+                if let Some(seconds) = retry_after {
+                    write!(f, "Rate limited: {} (retry after {}s)", message, seconds)
+                } else {
+                    write!(f, "Rate limited: {}", message)
+                }
+            }
         }
     }
 }
 
 impl std::error::Error for FetchError {}
 
+impl FetchError {
+    /// Returns true if the error is transient and should be retried
+    fn is_transient(&self) -> bool {
+        match self {
+            FetchError::Network(_) => true,
+            FetchError::RateLimited { .. } => true,
+            FetchError::Auth(_) => false,
+            FetchError::Parse(_) => false,
+        }
+    }
+
+    /// Get a user-friendly error category for display
+    fn category(&self) -> &'static str {
+        match self {
+            FetchError::Network(_) => "Offline",
+            FetchError::RateLimited { .. } => "Rate Limited",
+            FetchError::Auth(_) => "Authentication Error",
+            FetchError::Parse(_) => "Parse Error",
+        }
+    }
+}
+
+/// Configuration for retry behavior
 #[derive(Debug, Clone)]
-enum DataState {
-    Fresh {
-        metrics: UsageMetrics,
-        usage_data: UsageData,
-        timestamp: std::time::SystemTime,
-    },
-    Unknown,
+struct RetryConfig {
+    min_delay_secs: u64,
+    max_delay_secs: u64,
+    multiplier: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            min_delay_secs: 5,   // 5 seconds
+            max_delay_secs: 300, // 5 minutes
+            multiplier: 2.0,     // Double each time
+        }
+    }
+}
+
+impl RetryConfig {
+    fn from_env() -> Self {
+        let mut config = Self::default();
+
+        if let Ok(val) = std::env::var("RETRY_MIN_DELAY_SECS")
+            && let Ok(parsed) = val.parse()
+        {
+            config.min_delay_secs = parsed;
+        }
+        if let Ok(val) = std::env::var("RETRY_MAX_DELAY_SECS")
+            && let Ok(parsed) = val.parse()
+        {
+            config.max_delay_secs = parsed;
+        }
+        if let Ok(val) = std::env::var("RETRY_MULTIPLIER")
+            && let Ok(parsed) = val.parse()
+        {
+            config.multiplier = parsed;
+        }
+
+        config
+    }
+}
+
+/// Tracks retry state with exponential backoff
+#[derive(Debug)]
+struct RetryState {
+    current_delay: Duration,
+    consecutive_failures: u32,
+    config: RetryConfig,
+}
+
+impl RetryState {
+    fn new(config: RetryConfig) -> Self {
+        Self {
+            current_delay: Duration::from_secs(config.min_delay_secs),
+            consecutive_failures: 0,
+            config,
+        }
+    }
+
+    /// Record a successful fetch - resets backoff
+    fn record_success(&mut self) {
+        self.current_delay = Duration::from_secs(self.config.min_delay_secs);
+        self.consecutive_failures = 0;
+    }
+
+    /// Record a failure and calculate next delay with exponential backoff
+    fn record_failure(&mut self, error: &FetchError) -> Duration {
+        self.consecutive_failures += 1;
+
+        let delay = if error.is_transient() {
+            // Exponential backoff for transient errors
+            let next_delay_secs =
+                (self.current_delay.as_secs() as f64 * self.config.multiplier) as u64;
+            let clamped = next_delay_secs
+                .max(self.config.min_delay_secs)
+                .min(self.config.max_delay_secs);
+
+            self.current_delay = Duration::from_secs(clamped);
+            self.current_delay
+        } else {
+            // Permanent errors: use minimum interval (don't spam, but stay responsive)
+            Duration::from_secs(self.config.min_delay_secs)
+        };
+
+        // Extra backoff for rate limiting
+        if matches!(error, FetchError::RateLimited { .. }) {
+            // Use max delay for rate limits to avoid further limiting
+            Duration::from_secs(self.config.max_delay_secs)
+        } else {
+            delay
+        }
+    }
+
+    fn current_delay(&self) -> Duration {
+        self.current_delay
+    }
+}
+
+/// Represents the application's data state with error tracking and last-known-good support
+#[derive(Debug, Clone)]
+struct AppState {
+    /// Last successfully fetched data (None if never succeeded)
+    last_success: Option<SuccessfulFetch>,
+    /// Current error state (None if no active error)
+    current_error: Option<FetchError>,
+}
+
+#[derive(Debug, Clone)]
+struct SuccessfulFetch {
+    metrics: UsageMetrics,
+    usage_data: UsageData,
+    timestamp: std::time::SystemTime,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            last_success: None,
+            current_error: None,
+        }
+    }
+
+    fn update_success(&mut self, metrics: UsageMetrics, usage_data: UsageData) {
+        self.last_success = Some(SuccessfulFetch {
+            metrics,
+            usage_data,
+            timestamp: std::time::SystemTime::now(),
+        });
+        self.current_error = None;
+    }
+
+    fn update_error(&mut self, error: FetchError) {
+        self.current_error = Some(error);
+    }
+
+    fn is_stale(&self, threshold_secs: u64) -> bool {
+        if let Some(success) = &self.last_success
+            && let Ok(elapsed) = std::time::SystemTime::now().duration_since(success.timestamp)
+        {
+            return elapsed.as_secs() > threshold_secs;
+        }
+        false
+    }
 }
 
 impl From<std::env::VarError> for FetchError {
@@ -163,6 +334,39 @@ const RENDER_SIZE: u32 = ICON_SIZE * RENDER_SCALE; // 128px
 const PERCENTAGE_FONT_SIZE: f32 = 124.0; // 31.0 * 4
 const UNKNOWN_FONT_SIZE: f32 = 80.0; // 20.0 * 4
 
+// Staleness threshold (30 minutes)
+const STALENESS_THRESHOLD_SECS: u64 = 1800;
+
+/// Error indicator for visual feedback on icons
+#[derive(Debug, Clone, Copy)]
+enum ErrorIndicator {
+    None,
+    Offline,     // Gray border - network/transient errors
+    AuthError,   // Yellow border - authentication failures
+    RateLimited, // Orange border - rate limiting
+}
+
+impl ErrorIndicator {
+    fn from_error(error: Option<&FetchError>) -> Self {
+        match error {
+            None => ErrorIndicator::None,
+            Some(FetchError::Network(_)) => ErrorIndicator::Offline,
+            Some(FetchError::Auth(_)) => ErrorIndicator::AuthError,
+            Some(FetchError::RateLimited { .. }) => ErrorIndicator::RateLimited,
+            Some(FetchError::Parse(_)) => ErrorIndicator::AuthError, // Treat parse errors like auth
+        }
+    }
+
+    fn border_color(&self) -> Option<[u8; 3]> {
+        match self {
+            ErrorIndicator::None => None,
+            ErrorIndicator::Offline => Some([128, 128, 128]), // Gray
+            ErrorIndicator::AuthError => Some([255, 193, 7]), // Amber/Yellow
+            ErrorIndicator::RateLimited => Some([255, 152, 0]), // Orange
+        }
+    }
+}
+
 /// Measure text dimensions using ab_glyph metrics
 /// Returns (width, height, baseline_offset)
 fn measure_text_bounds(
@@ -209,10 +413,11 @@ fn calculate_centered_position(
 }
 
 /// Generate icon with usage percentage displayed on color gradient background
-fn generate_usage_icon(percentage: u8) -> Vec<u8> {
+fn generate_usage_icon(percentage: u8, error_indicator: ErrorIndicator) -> Vec<u8> {
     use ab_glyph::{FontRef, PxScale};
     use image::{Rgba, RgbaImage, imageops};
-    use imageproc::drawing::draw_text_mut;
+    use imageproc::drawing::{draw_hollow_rect_mut, draw_text_mut};
+    use imageproc::rect::Rect;
 
     // Get background color based on usage
     let bg_color = usage_to_color(percentage);
@@ -221,6 +426,19 @@ fn generate_usage_icon(percentage: u8) -> Vec<u8> {
         RENDER_SIZE,
         Rgba([bg_color[0], bg_color[1], bg_color[2], 255]),
     );
+
+    // Draw error indicator border if needed
+    if let Some(border_color) = error_indicator.border_color() {
+        let border_rgba = Rgba([border_color[0], border_color[1], border_color[2], 255]);
+        let border_width = 8; // Scaled for high-res rendering
+
+        // Draw multiple rectangles to create thick border
+        for i in 0..border_width {
+            let rect =
+                Rect::at(i as i32, i as i32).of_size(RENDER_SIZE - (i * 2), RENDER_SIZE - (i * 2));
+            draw_hollow_rect_mut(&mut img, rect, border_rgba);
+        }
+    }
 
     // Get contrasting text color
     let text_color = contrast_text_color(bg_color);
@@ -318,7 +536,14 @@ async fn fetch_usage_data() -> Result<UsageData, FetchError> {
     if status.is_success() {
         serde_json::from_str::<UsageData>(&response_text)
             .map_err(|e| FetchError::Parse(format!("Failed to parse response: {}", e)))
-    } else {
+    } else if status.as_u16() == 429 {
+        // Rate limited - basic detection without Retry-After parsing
+        Err(FetchError::RateLimited {
+            message: "Too many requests".to_string(),
+            retry_after: None,
+        })
+    } else if status.as_u16() == 401 || status.as_u16() == 403 {
+        // Authentication/authorization errors
         let error_msg = match serde_json::from_str::<ApiErrorResponse>(&response_text) {
             Ok(error_data) => format!(
                 "{} - {}",
@@ -327,79 +552,113 @@ async fn fetch_usage_data() -> Result<UsageData, FetchError> {
             Err(_) => format!("HTTP {}", status),
         };
         Err(FetchError::Auth(error_msg))
+    } else {
+        // Other errors (5xx, etc.) - treat as network/transient
+        let error_msg = match serde_json::from_str::<ApiErrorResponse>(&response_text) {
+            Ok(error_data) => format!(
+                "{} - {}",
+                error_data.error.error_type, error_data.error.message
+            ),
+            Err(_) => format!("HTTP {}", status),
+        };
+        Err(FetchError::Network(error_msg))
     }
 }
 
 fn update_tray_icon(
     app: &AppHandle,
-    state: &DataState,
+    state: &AppState,
     poller: &AdaptivePoller,
+    retry_state: &RetryState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::time::SystemTime;
 
     let tray = app.tray_by_id("main").ok_or("Tray not found")?;
 
+    // Determine error indicator from current error
+    let error_indicator = ErrorIndicator::from_error(state.current_error.as_ref());
+
     // Generate icon based on state
-    let icon_bytes = match state {
-        DataState::Fresh { metrics, .. } => generate_usage_icon(metrics.weekly_pct()),
-        DataState::Unknown => generate_unknown_icon(),
+    let icon_bytes = if let Some(success) = &state.last_success {
+        generate_usage_icon(success.metrics.weekly_pct(), error_indicator)
+    } else {
+        generate_unknown_icon()
     };
 
     let icon = tauri::image::Image::new_owned(icon_bytes, 32, 32);
     tray.set_icon(Some(icon))?;
 
     // Build comprehensive tooltip
-    let tooltip = match state {
-        DataState::Fresh {
-            metrics,
-            usage_data,
-            timestamp,
-        } => {
-            let elapsed = SystemTime::now()
-                .duration_since(*timestamp)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+    let tooltip = if let Some(success) = &state.last_success {
+        let elapsed = SystemTime::now()
+            .duration_since(success.timestamp)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
-            let format_reset_time = |resets_at: &Option<String>| -> String {
-                resets_at
-                    .as_ref()
-                    .map(|s| {
-                        // Parse ISO 8601 timestamp and format it nicely
-                        s.split('T')
-                            .next()
-                            .map(|date| date.to_string())
-                            .unwrap_or_else(|| s.clone())
-                    })
-                    .unwrap_or_else(|| "Unknown".to_string())
-            };
+        let format_reset_time = |resets_at: &Option<String>| -> String {
+            resets_at
+                .as_ref()
+                .map(|s| {
+                    s.split('T')
+                        .next()
+                        .map(|date| date.to_string())
+                        .unwrap_or_else(|| s.clone())
+                })
+                .unwrap_or_else(|| "Unknown".to_string())
+        };
 
-            format!(
-                "Claude Usage Indicator\n\
-                \n\
-                Weekly: {}% (resets {})\n\
-                6-hour: {}% (resets {})\n\
-                \n\
-                State: {:?}\n\
-                Next poll: {}s\n\
-                Last update: {}s ago",
-                metrics.weekly_pct(),
-                format_reset_time(&usage_data.seven_day.resets_at),
-                metrics.six_hour_pct(),
-                format_reset_time(&usage_data.five_hour.resets_at),
-                poller.current_state(),
-                poller.current_interval().as_secs(),
-                elapsed
-            )
+        let mut tooltip = format!(
+            "Claude Usage Indicator\n\
+            \n\
+            Weekly: {}% (resets {})\n\
+            6-hour: {}% (resets {})\n\
+            \n\
+            State: {:?}\n\
+            Next poll: {}s\n\
+            Last update: {}s ago",
+            success.metrics.weekly_pct(),
+            format_reset_time(&success.usage_data.seven_day.resets_at),
+            success.metrics.six_hour_pct(),
+            format_reset_time(&success.usage_data.five_hour.resets_at),
+            poller.current_state(),
+            poller.current_interval().as_secs(),
+            elapsed
+        );
+
+        // Add error information if present
+        if let Some(error) = &state.current_error {
+            let is_stale = state.is_stale(STALENESS_THRESHOLD_SECS);
+            tooltip.push_str(&format!(
+                "\n\n⚠ {}: {}\n\
+                Retry in: {}s{}",
+                error.category(),
+                error,
+                retry_state.current_delay().as_secs(),
+                if is_stale { " (data is stale)" } else { "" }
+            ));
         }
-        DataState::Unknown => {
-            format!(
-                "Claude Usage Indicator\n\
-                \n\
-                Status: Unable to fetch usage data\n\
-                Next poll: {}s",
+
+        tooltip
+    } else {
+        // No data available yet
+        let mut tooltip = String::from("Claude Usage Indicator\n\nStatus: No data available yet");
+
+        if let Some(error) = &state.current_error {
+            tooltip.push_str(&format!(
+                "\n\n⚠ {}: {}\n\
+                Retry in: {}s",
+                error.category(),
+                error,
+                retry_state.current_delay().as_secs()
+            ));
+        } else {
+            tooltip.push_str(&format!(
+                "\nNext poll: {}s",
                 poller.current_interval().as_secs()
-            )
+            ));
         }
+
+        tooltip
     };
 
     tray.set_tooltip(Some(tooltip))?;
@@ -408,14 +667,22 @@ fn update_tray_icon(
 }
 
 async fn start_polling(app: AppHandle, cancel_token: CancellationToken) {
-    use std::time::SystemTime;
-
     // Initialize adaptive poller with config from environment
-    let config = PollerConfig::from_env();
-    info!("Adaptive poller initialized with config: {:?}", config);
+    let poller_config = PollerConfig::from_env();
+    info!(
+        "Adaptive poller initialized with config: {:?}",
+        poller_config
+    );
 
-    let mut poller = AdaptivePoller::new(config);
-    let mut current_state = DataState::Unknown;
+    let retry_config = RetryConfig::from_env();
+    info!(
+        "Retry config: min={}s, max={}s, multiplier={}",
+        retry_config.min_delay_secs, retry_config.max_delay_secs, retry_config.multiplier
+    );
+
+    let mut poller = AdaptivePoller::new(poller_config);
+    let mut retry_state = RetryState::new(retry_config);
+    let mut app_state = AppState::new();
 
     loop {
         // Check for cancellation signal
@@ -430,65 +697,66 @@ async fn start_polling(app: AppHandle, cancel_token: CancellationToken) {
                 info!("Fetching usage data...");
 
                 match fetch_usage_data().await {
-            Ok(data) => {
-                // Convert API response to metrics (rounding to 1% resolution)
-                let metrics = UsageMetrics::new(
-                    data.five_hour.utilization.round() as u8,
-                    data.seven_day.utilization.round() as u8,
-                );
+                    Ok(data) => {
+                        // Convert API response to metrics (rounding to 1% resolution)
+                        let metrics = UsageMetrics::new(
+                            data.five_hour.utilization.round() as u8,
+                            data.seven_day.utilization.round() as u8,
+                        );
 
-                info!(
-                    "Usage data fetched - 6h: {}%, weekly: {}%",
-                    metrics.six_hour_pct(),
-                    metrics.weekly_pct()
-                );
+                        info!(
+                            "Usage data fetched - 6h: {}%, weekly: {}%",
+                            metrics.six_hour_pct(),
+                            metrics.weekly_pct()
+                        );
 
-                // Update state with fresh data
-                current_state = DataState::Fresh {
-                    metrics,
-                    usage_data: data,
-                    timestamp: SystemTime::now(),
-                };
+                        // Update state with fresh data
+                        app_state.update_success(metrics, data);
+                        retry_state.record_success();
 
-                // Calculate next interval using adaptive algorithm
-                let next_interval = poller.next_interval(metrics, now);
+                        // Calculate next interval using adaptive algorithm
+                        let next_interval = poller.next_interval(metrics, now);
 
-                info!(
-                    state = ?poller.current_state(),
-                    next_interval_secs = next_interval.as_secs(),
-                    next_interval_mins = next_interval.as_secs() / 60,
-                    "Adaptive polling cycle complete"
-                );
+                        info!(
+                            state = ?poller.current_state(),
+                            next_interval_secs = next_interval.as_secs(),
+                            next_interval_mins = next_interval.as_secs() / 60,
+                            "Adaptive polling cycle complete"
+                        );
 
-                // Update tray icon with current state
-                if let Err(e) = update_tray_icon(&app, &current_state, &poller) {
-                    error!("Failed to update tray icon: {}", e);
+                        // Update tray icon with current state
+                        if let Err(e) = update_tray_icon(&app, &app_state, &poller, &retry_state) {
+                            error!("Failed to update tray icon: {}", e);
+                        }
+
+                        // Sleep for adaptive duration
+                        sleep(next_interval).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch usage data: {}", e);
+
+                        // Calculate retry delay with exponential backoff
+                        let retry_delay = retry_state.record_failure(&e);
+
+                        // Update state with error (keeps last-known-good data)
+                        app_state.update_error(e.clone());
+
+                        // Update tray icon to show error state
+                        if let Err(icon_err) = update_tray_icon(&app, &app_state, &poller, &retry_state) {
+                            error!("Failed to update tray icon: {}", icon_err);
+                        }
+
+                        info!(
+                            error_category = e.category(),
+                            is_transient = e.is_transient(),
+                            retry_delay_secs = retry_delay.as_secs(),
+                            "Retrying after error"
+                        );
+
+                        // Sleep for calculated retry delay
+                        sleep(retry_delay).await;
+                    }
                 }
-
-                // Sleep for adaptive duration
-                sleep(next_interval).await;
-            }
-            Err(e) => {
-                error!("Failed to fetch usage data: {}", e);
-
-                // Update state to unknown
-                current_state = DataState::Unknown;
-
-                // Update tray icon to show unknown state
-                if let Err(e) = update_tray_icon(&app, &current_state, &poller) {
-                    error!("Failed to update tray icon: {}", e);
-                }
-
-                // On error, wait minimum interval before retrying
-                let min_interval =
-                    Duration::from_secs(poller.current_interval().as_secs().max(180));
-                info!(
-                    "Retrying in {} seconds due to error",
-                    min_interval.as_secs()
-                );
-                sleep(min_interval).await;
-            }
-        }
             } => {}
         }
     }

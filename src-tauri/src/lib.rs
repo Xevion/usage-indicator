@@ -1,8 +1,13 @@
+mod adaptive_poller;
+mod system_events;
+
+use adaptive_poller::{AdaptivePoller, PollerConfig, UsageMetrics};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::AppHandle;
-use tokio::time::{interval, Duration};
+use tokio::time::{sleep, Duration};
+use std::time::Instant;
 use tracing::{error, info};
 use wreq::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use wreq::ClientBuilder;
@@ -162,25 +167,55 @@ fn update_tray_icon(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn start_polling(app: AppHandle) {
-    let mut interval = interval(Duration::from_secs(10));
+    // Initialize adaptive poller with config from environment
+    let config = PollerConfig::from_env();
+    info!("Adaptive poller initialized with config: {:?}", config);
+
+    let mut poller = AdaptivePoller::new(config);
 
     loop {
-        interval.tick().await;
+        let now = Instant::now();
 
         info!("Fetching usage data...");
 
         match fetch_usage_data().await {
             Ok(data) => {
-                info!("Five hour utilization: {:.1}%", data.five_hour.utilization);
-                info!("Seven day utilization: {:.1}%", data.seven_day.utilization);
-                info!("Seven day opus utilization: {:.1}%", data.seven_day_opus.utilization);
+                // Convert API response to metrics (rounding to 1% resolution)
+                let metrics = UsageMetrics::new(
+                    data.five_hour.utilization.round() as u8,
+                    data.seven_day.utilization.round() as u8,
+                );
+
+                info!(
+                    "Usage data fetched - 6h: {}%, weekly: {}%",
+                    metrics.six_hour_pct(),
+                    metrics.weekly_pct()
+                );
+
+                // Calculate next interval using adaptive algorithm
+                let next_interval = poller.next_interval(metrics, now);
+
+                info!(
+                    state = ?poller.current_state(),
+                    next_interval_secs = next_interval.as_secs(),
+                    next_interval_mins = next_interval.as_secs() / 60,
+                    "Adaptive polling cycle complete"
+                );
 
                 if let Err(e) = update_tray_icon(&app) {
                     error!("Failed to update tray icon: {}", e);
                 }
+
+                // Sleep for adaptive duration
+                sleep(next_interval).await;
             }
             Err(e) => {
                 error!("Failed to fetch usage data: {}", e);
+
+                // On error, wait minimum interval before retrying
+                let min_interval = Duration::from_secs(poller.current_interval().as_secs().max(180));
+                info!("Retrying in {} seconds due to error", min_interval.as_secs());
+                sleep(min_interval).await;
             }
         }
     }

@@ -2,17 +2,17 @@ mod adaptive_poller;
 
 use adaptive_poller::{AdaptivePoller, PollerConfig, UsageMetrics};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use wreq::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use wreq::ClientBuilder;
+use wreq::header::{COOKIE, HeaderMap, HeaderValue, USER_AGENT};
 
 #[derive(Debug)]
 enum FetchError {
@@ -211,7 +211,7 @@ fn calculate_centered_position(
 /// Generate icon with usage percentage displayed on color gradient background
 fn generate_usage_icon(percentage: u8) -> Vec<u8> {
     use ab_glyph::{FontRef, PxScale};
-    use image::{imageops, Rgba, RgbaImage};
+    use image::{Rgba, RgbaImage, imageops};
     use imageproc::drawing::draw_text_mut;
 
     // Get background color based on usage
@@ -246,12 +246,7 @@ fn generate_usage_icon(percentage: u8) -> Vec<u8> {
     draw_text_mut(&mut img, text_rgba, x, y, scale, &font, &text);
 
     // Downscale to final icon size for better quality
-    let final_img = imageops::resize(
-        &img,
-        ICON_SIZE,
-        ICON_SIZE,
-        imageops::FilterType::Lanczos3,
-    );
+    let final_img = imageops::resize(&img, ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3);
 
     final_img.into_raw()
 }
@@ -259,15 +254,11 @@ fn generate_usage_icon(percentage: u8) -> Vec<u8> {
 /// Generate icon with question mark for unknown state
 fn generate_unknown_icon() -> Vec<u8> {
     use ab_glyph::{FontRef, PxScale};
-    use image::{imageops, Rgba, RgbaImage};
+    use image::{Rgba, RgbaImage, imageops};
     use imageproc::drawing::draw_text_mut;
 
     // Gray background for unknown state
-    let mut img = RgbaImage::from_pixel(
-        RENDER_SIZE,
-        RENDER_SIZE,
-        Rgba([128, 128, 128, 255]),
-    );
+    let mut img = RgbaImage::from_pixel(RENDER_SIZE, RENDER_SIZE, Rgba([128, 128, 128, 255]));
 
     // White question mark
     let text_rgba = Rgba([255, 255, 255, 255]);
@@ -290,12 +281,7 @@ fn generate_unknown_icon() -> Vec<u8> {
     draw_text_mut(&mut img, text_rgba, x, y, scale, &font, text);
 
     // Downscale to final icon size for better quality
-    let final_img = imageops::resize(
-        &img,
-        ICON_SIZE,
-        ICON_SIZE,
-        imageops::FilterType::Lanczos3,
-    );
+    let final_img = imageops::resize(&img, ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3);
 
     final_img.into_raw()
 }
@@ -536,8 +522,10 @@ pub fn run() {
             TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .menu(&menu)
-                .on_menu_event(|app, event| if event.id.as_ref() == "quit" {
-                    app.exit(0);
+                .on_menu_event(|app, event| {
+                    if event.id.as_ref() == "quit" {
+                        app.exit(0);
+                    }
                 })
                 .build(app)?;
 

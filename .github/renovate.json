@@ -1,0 +1,62 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended"],
+	"timezone": "America/Chicago",
+	"schedule": ["before 10am on Monday"],
+	"automerge": false,
+	"prConcurrentLimit": 5,
+	"prCreation": "immediate",
+	"rangeStrategy": "bump",
+	"semanticCommits": "enabled",
+	"commitMessagePrefix": "chore(deps):",
+	"platformAutomerge": false,
+	"dependencyDashboard": true,
+	"labels": ["dependencies"],
+	"packageRules": [
+		{
+			"description": "Rust dependencies (Cargo.toml)",
+			"matchManagers": ["cargo"],
+			"matchFileNames": ["src-tauri/Cargo.toml"],
+			"groupName": "Rust dependencies",
+			"automerge": false,
+			"labels": ["rust", "dependencies"],
+			"commitMessagePrefix": "chore(deps/rust):"
+		},
+		{
+			"description": "React production dependencies",
+			"matchManagers": ["npm"],
+			"matchFileNames": ["package.json"],
+			"matchDepTypes": ["dependencies"],
+			"groupName": "React dependencies",
+			"automerge": false,
+			"labels": ["react", "dependencies"],
+			"commitMessagePrefix": "chore(deps/react):",
+			"separateMajorMinor": true
+		},
+		{
+			"description": "React dev dependencies",
+			"matchManagers": ["npm"],
+			"matchFileNames": ["package.json"],
+			"matchDepTypes": ["devDependencies"],
+			"groupName": "React dev dependencies",
+			"automerge": false,
+			"labels": ["react", "dependencies", "dev"],
+			"commitMessagePrefix": "chore(deps/react):",
+			"separateMajorMinor": true
+		},
+		{
+			"description": "GitHub Actions (pinned to commit SHA)",
+			"matchManagers": ["github-actions"],
+			"groupName": "GitHub Actions",
+			"automerge": false,
+			"labels": ["github-actions", "dependencies"],
+			"commitMessagePrefix": "chore(deps/actions):",
+			"pinDigests": true,
+			"separateMajorMinor": false
+		}
+	],
+	"vulnerabilityAlerts": {
+		"enabled": true,
+		"labels": ["security"]
+	}
+}

@@ -44,8 +44,7 @@ impl UsageMetrics {
 
     /// Create new UsageMetrics, panicking if values are out of range (0-100)
     pub fn new(six_hour_pct: u8, weekly_pct: u8) -> Self {
-        Self::try_new(six_hour_pct, weekly_pct)
-            .expect("UsageMetrics values must be in range 0-100")
+        Self::try_new(six_hour_pct, weekly_pct).expect("UsageMetrics values must be in range 0-100")
     }
 
     pub fn six_hour_pct(&self) -> u8 {
@@ -99,13 +98,13 @@ pub struct PollerConfig {
 impl Default for PollerConfig {
     fn default() -> Self {
         Self {
-            min_interval_secs: 180,        // 3 minutes
-            max_interval_secs: 5400,       // 90 minutes
-            additive_increase_secs: 90,    // 1.5 minutes
+            min_interval_secs: 180,     // 3 minutes
+            max_interval_secs: 5400,    // 90 minutes
+            additive_increase_secs: 90, // 1.5 minutes
 
-            recency_window_secs: 600,      // 10 minutes
-            context_window_secs: 3600,     // 1 hour
-            idle_to_cold_secs: 1800,       // 30 minutes
+            recency_window_secs: 600,  // 10 minutes
+            context_window_secs: 3600, // 1 hour
+            idle_to_cold_secs: 1800,   // 30 minutes
 
             six_hour_sustained_threshold: 4,
             weekly_sustained_threshold: 2,
@@ -164,12 +163,19 @@ impl TimeWindowedTracker {
         self.history = self.history.split_off(&cutoff);
     }
 
-    fn calculate_momentum<F>(&self, window: Duration, now: Instant, extractor: F, max_change: Option<u8>) -> u8
+    fn calculate_momentum<F>(
+        &self,
+        window: Duration,
+        now: Instant,
+        extractor: F,
+        max_change: Option<u8>,
+    ) -> u8
     where
-        F: Fn(&UsageMetrics) -> u8
+        F: Fn(&UsageMetrics) -> u8,
     {
         let cutoff = now.checked_sub(window).unwrap_or(now);
-        let samples: Vec<u8> = self.history
+        let samples: Vec<u8> = self
+            .history
             .range(cutoff..)
             .map(|(_, metrics)| extractor(metrics))
             .collect();
@@ -211,7 +217,8 @@ impl TimeWindowedTracker {
         // Find most recent change in either metric
         for (timestamp, metrics) in samples.iter().skip(1) {
             if metrics.six_hour_pct() != latest_metrics.six_hour_pct()
-                || metrics.weekly_pct() != latest_metrics.weekly_pct() {
+                || metrics.weekly_pct() != latest_metrics.weekly_pct()
+            {
                 return now.duration_since(**timestamp);
             }
         }
@@ -273,7 +280,8 @@ pub struct AdaptivePoller {
 
 impl AdaptivePoller {
     pub fn new(config: PollerConfig) -> Self {
-        let max_history = Duration::from_secs(config.context_window_secs.max(config.idle_to_cold_secs));
+        let max_history =
+            Duration::from_secs(config.context_window_secs.max(config.idle_to_cold_secs));
 
         Self {
             current_interval: Duration::from_secs(config.min_interval_secs),
@@ -292,21 +300,15 @@ impl AdaptivePoller {
             TemperatureState::Cool => {
                 self.current_interval + Duration::from_secs(self.config.additive_increase_secs / 2)
             }
-            TemperatureState::Warm => {
-                Duration::from_secs(
-                    (self.current_interval.as_secs() as f64 * self.config.warm_multiplier) as u64
-                )
-            }
-            TemperatureState::Hot => {
-                Duration::from_secs(
-                    (self.current_interval.as_secs() as f64 * self.config.hot_multiplier) as u64
-                )
-            }
-            TemperatureState::Blazing => {
-                Duration::from_secs(
-                    (self.current_interval.as_secs() as f64 * self.config.blazing_multiplier) as u64
-                )
-            }
+            TemperatureState::Warm => Duration::from_secs(
+                (self.current_interval.as_secs() as f64 * self.config.warm_multiplier) as u64,
+            ),
+            TemperatureState::Hot => Duration::from_secs(
+                (self.current_interval.as_secs() as f64 * self.config.hot_multiplier) as u64,
+            ),
+            TemperatureState::Blazing => Duration::from_secs(
+                (self.current_interval.as_secs() as f64 * self.config.blazing_multiplier) as u64,
+            ),
         }
     }
 
@@ -320,7 +322,7 @@ impl AdaptivePoller {
 
     fn apply_smoothing(current: Duration, target: Duration, factor: f64) -> Duration {
         Duration::from_secs(
-            (current.as_secs() as f64 * (1.0 - factor) + target.as_secs() as f64 * factor) as u64
+            (current.as_secs() as f64 * (1.0 - factor) + target.as_secs() as f64 * factor) as u64,
         )
     }
 
@@ -342,12 +344,12 @@ impl AdaptivePoller {
 
         let new_interval = self.calculate_interval_for_state(self.current_state).clamp(
             Duration::from_secs(self.config.min_interval_secs),
-            Duration::from_secs(self.config.max_interval_secs)
+            Duration::from_secs(self.config.max_interval_secs),
         );
         self.current_interval = Self::apply_smoothing(
             self.current_interval,
             new_interval,
-            Self::get_smoothing_factor(self.current_state)
+            Self::get_smoothing_factor(self.current_state),
         );
 
         debug!(
@@ -401,10 +403,12 @@ mod tests {
         tracker.record_sample(UsageMetrics::new(11, 5), now + Duration::from_secs(60));
         tracker.record_sample(UsageMetrics::new(13, 6), now + Duration::from_secs(120));
 
-        let momentum = tracker.calculate_six_hour_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
+        let momentum = tracker
+            .calculate_six_hour_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
         assert_eq!(momentum, 3); // 10 → 11 → 13 = +3 total
 
-        let weekly_momentum = tracker.calculate_weekly_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
+        let weekly_momentum = tracker
+            .calculate_weekly_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
         assert_eq!(weekly_momentum, 1); // 5 → 5 → 6 = +1 total
     }
 

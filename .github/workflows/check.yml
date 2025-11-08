@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.90.0"
 
 jobs:
   check:
@@ -21,7 +20,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Rust cache
@@ -40,13 +39,11 @@ jobs:
       - name: Check frontend types
         run: bun run build
 
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
-            libglib2.0-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+      - name: Cache Linux dependencies
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.0
+        with:
+          packages: libglib2.0-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+          version: 1.0
 
       - name: Run Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings

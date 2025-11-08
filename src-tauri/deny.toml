@@ -1,0 +1,78 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+# All advisory types (vulnerability, unmaintained, unsound, notice) default to deny in v2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Ignore unmaintained transitive dependencies from Tauri
+# These are all from Tauri's dependencies and cannot be fixed without upstream changes
+ignore = [
+    # Unmaintained proc-macro crates
+    "RUSTSEC-2024-0370",  # proc-macro-error
+    # gtk3-rs (unmaintained, waiting for Tauri GTK4 migration)
+    "RUSTSEC-2024-0411",  # atk-sys
+    "RUSTSEC-2024-0412",  # cairo-rs
+    "RUSTSEC-2024-0413",  # atk
+    "RUSTSEC-2024-0414",  # gdk
+    "RUSTSEC-2024-0415",  # gdk-pixbuf
+    "RUSTSEC-2024-0416",  # atk-sys
+    "RUSTSEC-2024-0417",  # cairo-rs
+    "RUSTSEC-2024-0418",  # cairo-sys-rs
+    "RUSTSEC-2024-0419",  # gdk
+    "RUSTSEC-2024-0420",  # gdk-pixbuf
+    "RUSTSEC-2024-0429",  # gtk-sys
+    "RUSTSEC-2024-0436",  # paste/pango
+    # Other unmaintained transitive dependencies
+    "RUSTSEC-2025-0057",  # fxhash
+    "RUSTSEC-2025-0075",  # unic-char-range / html5ever
+    "RUSTSEC-2025-0080",  # unic-common
+    "RUSTSEC-2025-0081",  # unic-char-property
+    "RUSTSEC-2025-0098",  # unic-ucd-version
+    "RUSTSEC-2025-0100",  # unic-ucd-ident
+]
+
+[licenses]
+version = 2
+# All unlisted licenses default to deny in v2
+confidence-threshold = 0.8
+# Allow common open-source licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "0BSD",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "NCSA",
+    "CDLA-Permissive-2.0",
+    "GPL-3.0",  # Note: wreq-util dependency uses GPL-3.0 (copyleft)
+]
+# Clarify licenses for crates that need it
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[bans]
+# Warn on multiple versions of same crate (common in complex projects)
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+[sources]
+# Ensure all crates come from trusted sources
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

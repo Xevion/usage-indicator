@@ -1,6 +1,6 @@
 [package]
 name = "usage-indicator"
-version = "0.1.1"
+version = "0.1.2"
 description = "A system tray application for monitoring usage statistics of rate-limited cloud services."
 authors = ["Ryan Walters"]
 edition = "2024"

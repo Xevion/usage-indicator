@@ -7,7 +7,17 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!**/dist", "!**/build", "!**/node_modules", "!**/.git", "!**/src-tauri/target"]
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/build",
+			"!**/node_modules",
+			"!**/.git",
+			"!**/src-tauri/target",
+			"!package.json",
+			"!src-tauri/Cargo.toml",
+			"!src-tauri/tauri.conf.json"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -54,6 +64,11 @@
 			"semicolons": "always",
 			"arrowParentheses": "always",
 			"bracketSpacing": true
+		}
+	},
+	"json": {
+		"formatter": {
+			"trailingCommas": "none"
 		}
 	}
 }

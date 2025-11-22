@@ -79,10 +79,29 @@ See [ROADMAP.md](ROADMAP.md) for the complete vision, but highlights include:
 
 ## Security & Privacy
 
+**Update Security:**
+
+- All release artifacts are cryptographically signed using minisign
+- Auto-updates (when enabled) verify signatures before installation
+- See [SIGNING.md](SIGNING.md) for technical details
+
+**Installation Warnings:**
+
+Since the application is not yet code-signed for specific platforms, you may see security warnings:
+
+- **Windows**: SmartScreen warning ("Windows protected your PC")
+  - Click "More info" → "Run anyway"
+  - This is expected for unsigned applications and will be addressed in future releases
+- **macOS**: Gatekeeper warning ("cannot be opened because it is from an unidentified developer")
+  - Right-click the app → "Open" → Confirm
+  - Or: System Settings → Privacy & Security → "Open Anyway"
+- **Linux**: No warnings expected
+
 **Current limitations (v0.1):**
 
 - Credentials stored in plaintext `.env` file (not suitable for shared systems)
 - No encryption at rest
+- No platform-specific code signing (Windows/macOS security warnings)
 
 **Future (v0.3):**
 
@@ -93,6 +112,7 @@ See [ROADMAP.md](ROADMAP.md) for the complete vision, but highlights include:
 
 - No telemetry or analytics—all data stays local
 - Credentials only transmitted to official Claude API endpoints
+- Cryptographically signed releases with verified update mechanism
 
 ## License
 

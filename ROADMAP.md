@@ -21,12 +21,12 @@ Establish automated build and release infrastructure to make the app easily inst
 
 #### CI/CD Pipeline
 
-- [ ] GitHub Actions workflow for automated builds
-- [ ] Matrix builds for Windows, macOS, and Linux
-- [ ] Automated testing on all platforms
+- [x] GitHub Actions workflow for automated builds
+- [x] Matrix builds for Windows, macOS, and Linux
+- [x] Automated testing on all platforms
 - [ ] Release artifact generation and signing
-- [ ] Automated GitHub Releases publishing
-- [ ] Version bumping automation
+- [x] Automated GitHub Releases publishing
+- [x] Version bumping automation
 
 #### Platform-Specific Installers
 

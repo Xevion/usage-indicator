@@ -14,8 +14,8 @@ use tracing::{error, info};
 use wreq::ClientBuilder;
 use wreq::header::{COOKIE, HeaderMap, HeaderValue, USER_AGENT};
 
-#[derive(Debug, Clone)]
-enum FetchError {
+#[derive(Debug, Clone, PartialEq)]
+pub enum FetchError {
     Network(String),
     Parse(String),
     Auth(String),
@@ -49,7 +49,7 @@ impl std::error::Error for FetchError {}
 
 impl FetchError {
     /// Returns true if the error is transient and should be retried
-    fn is_transient(&self) -> bool {
+    pub fn is_transient(&self) -> bool {
         match self {
             FetchError::Network(_) => true,
             FetchError::RateLimited { .. } => true,
@@ -59,7 +59,7 @@ impl FetchError {
     }
 
     /// Get a user-friendly error category for display
-    fn category(&self) -> &'static str {
+    pub fn category(&self) -> &'static str {
         match self {
             FetchError::Network(_) => "Offline",
             FetchError::RateLimited { .. } => "Rate Limited",
@@ -238,19 +238,19 @@ impl From<String> for FetchError {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct UsageData {
-    five_hour: UsagePeriod,
-    seven_day: UsagePeriod,
-    seven_day_oauth_apps: Option<UsagePeriod>,
-    seven_day_opus: UsagePeriod,
-    iguana_necktie: Option<UsagePeriod>,
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct UsageData {
+    pub five_hour: UsagePeriod,
+    pub seven_day: UsagePeriod,
+    pub seven_day_oauth_apps: Option<UsagePeriod>,
+    pub seven_day_opus: UsagePeriod,
+    pub iguana_necktie: Option<UsagePeriod>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct UsagePeriod {
-    utilization: f64,
-    resets_at: Option<String>,
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct UsagePeriod {
+    pub utilization: f64,
+    pub resets_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -504,23 +504,30 @@ fn generate_unknown_icon() -> Vec<u8> {
     final_img.into_raw()
 }
 
-async fn fetch_usage_data() -> Result<UsageData, FetchError> {
-    let org_id = std::env::var("CLAUDE_ORG_ID")?;
-    let session_key = std::env::var("CLAUDE_SESSION_KEY")?;
-
+/// Fetch usage data from the Claude API using a custom base URL (for testing)
+#[doc(hidden)]
+pub async fn fetch_usage_data_with_base_url(
+    base_url: &str,
+    org_id: &str,
+    session_key: &str,
+) -> Result<UsageData, FetchError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         COOKIE,
-        HeaderValue::from_str(&format!("sessionKey={}", session_key))?,
+        HeaderValue::from_str(&format!("sessionKey={}", session_key))
+            .map_err(|e| FetchError::Network(format!("Invalid header value: {}", e)))?,
     );
     headers.insert(
         USER_AGENT,
         HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
     );
 
-    let client = ClientBuilder::new().default_headers(headers).build()?;
+    let client = ClientBuilder::new()
+        .default_headers(headers)
+        .build()
+        .map_err(|e| FetchError::Network(format!("Failed to build client: {}", e)))?;
 
-    let url = format!("https://claude.ai/api/organizations/{}/usage", org_id);
+    let url = format!("{}/api/organizations/{}/usage", base_url, org_id);
     let response = client
         .get(&url)
         .send()
@@ -563,6 +570,12 @@ async fn fetch_usage_data() -> Result<UsageData, FetchError> {
         };
         Err(FetchError::Network(error_msg))
     }
+}
+
+async fn fetch_usage_data() -> Result<UsageData, FetchError> {
+    let org_id = std::env::var("CLAUDE_ORG_ID")?;
+    let session_key = std::env::var("CLAUDE_SESSION_KEY")?;
+    fetch_usage_data_with_base_url("https://claude.ai", &org_id, &session_key).await
 }
 
 fn update_tray_icon(

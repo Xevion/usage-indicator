@@ -377,73 +377,189 @@ impl AdaptivePoller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::{assert, let_assert};
+    use rstest::rstest;
 
     #[test]
-    fn test_state_transitions() {
+    fn test_initial_state_is_cold() {
+        let config = PollerConfig::default();
+        let poller = AdaptivePoller::new(config);
+
+        assert!(poller.current_state() == TemperatureState::Cold);
+    }
+
+    #[test]
+    fn test_no_change_stays_cold() {
         let config = PollerConfig::default();
         let mut poller = AdaptivePoller::new(config);
         let now = Instant::now();
 
-        // Initial state should be Cold
-        assert_eq!(poller.current_state(), TemperatureState::Cold);
-
-        // No change should stay Cold
         let metrics = UsageMetrics::new(15, 5);
         poller.next_interval(metrics, now);
-        assert_eq!(poller.current_state(), TemperatureState::Cold);
+
+        assert!(poller.current_state() == TemperatureState::Cold);
+    }
+
+    #[rstest]
+    #[case(TemperatureState::Cold, 0.3)]
+    #[case(TemperatureState::Cool, 0.3)]
+    #[case(TemperatureState::Warm, 0.3)]
+    #[case(TemperatureState::Hot, 0.5)]
+    #[case(TemperatureState::Blazing, 0.7)]
+    fn test_smoothing_factors(#[case] state: TemperatureState, #[case] expected: f64) {
+        let factor = AdaptivePoller::get_smoothing_factor(state);
+        assert!(factor == expected);
+    }
+
+    #[rstest]
+    #[case(
+        Duration::from_secs(100),
+        Duration::from_secs(200),
+        0.5,
+        Duration::from_secs(150)
+    )]
+    #[case(
+        Duration::from_secs(100),
+        Duration::from_secs(300),
+        0.3,
+        Duration::from_secs(160)
+    )]
+    #[case(
+        Duration::from_secs(500),
+        Duration::from_secs(100),
+        0.7,
+        Duration::from_secs(220)
+    )]
+    fn test_smoothing_application(
+        #[case] current: Duration,
+        #[case] target: Duration,
+        #[case] factor: f64,
+        #[case] expected: Duration,
+    ) {
+        let result = AdaptivePoller::apply_smoothing(current, target, factor);
+        assert!(result == expected);
     }
 
     #[test]
-    fn test_momentum_calculation() {
+    fn test_momentum_with_increasing_six_hour() {
         let mut tracker = TimeWindowedTracker::new(Duration::from_secs(3600));
         let now = Instant::now();
 
-        // Record increasing samples
         tracker.record_sample(UsageMetrics::new(10, 5), now);
         tracker.record_sample(UsageMetrics::new(11, 5), now + Duration::from_secs(60));
         tracker.record_sample(UsageMetrics::new(13, 6), now + Duration::from_secs(120));
 
         let momentum = tracker
             .calculate_six_hour_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
-        assert_eq!(momentum, 3); // 10 → 11 → 13 = +3 total
-
-        let weekly_momentum = tracker
-            .calculate_weekly_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
-        assert_eq!(weekly_momentum, 1); // 5 → 5 → 6 = +1 total
+        assert!(momentum == 3); // 10 → 11 → 13 = +3 total
     }
 
     #[test]
-    fn test_usage_metrics_validation() {
-        // Valid values should succeed
-        let metrics = UsageMetrics::try_new(50, 75);
-        assert!(metrics.is_ok());
-        let metrics = metrics.unwrap();
-        assert_eq!(metrics.six_hour_pct(), 50);
-        assert_eq!(metrics.weekly_pct(), 75);
+    fn test_momentum_with_increasing_weekly() {
+        let mut tracker = TimeWindowedTracker::new(Duration::from_secs(3600));
+        let now = Instant::now();
 
-        // Boundary values should succeed
-        assert!(UsageMetrics::try_new(0, 0).is_ok());
-        assert!(UsageMetrics::try_new(100, 100).is_ok());
+        tracker.record_sample(UsageMetrics::new(10, 5), now);
+        tracker.record_sample(UsageMetrics::new(11, 5), now + Duration::from_secs(60));
+        tracker.record_sample(UsageMetrics::new(13, 6), now + Duration::from_secs(120));
 
-        // Out of range values should fail
-        assert!(matches!(
-            UsageMetrics::try_new(101, 50),
-            Err(UsageMetricsError::SixHourOutOfRange(101))
-        ));
-        assert!(matches!(
-            UsageMetrics::try_new(50, 101),
-            Err(UsageMetricsError::WeeklyOutOfRange(101))
-        ));
+        let weekly_momentum = tracker
+            .calculate_weekly_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
+        assert!(weekly_momentum == 1); // 5 → 5 → 6 = +1 total
+    }
 
-        // Test panicking constructor with valid values
+    #[test]
+    fn test_momentum_with_no_change() {
+        let mut tracker = TimeWindowedTracker::new(Duration::from_secs(3600));
+        let now = Instant::now();
+
+        tracker.record_sample(UsageMetrics::new(10, 5), now);
+        tracker.record_sample(UsageMetrics::new(10, 5), now + Duration::from_secs(60));
+
+        let momentum = tracker
+            .calculate_six_hour_momentum(Duration::from_secs(120), now + Duration::from_secs(60));
+        assert!(momentum == 0);
+    }
+
+    #[rstest]
+    #[case(50, 75)]
+    #[case(0, 0)]
+    #[case(100, 100)]
+    #[case(25, 50)]
+    fn test_valid_usage_metrics(#[case] six_hour: u8, #[case] weekly: u8) {
+        let_assert!(Ok(metrics) = UsageMetrics::try_new(six_hour, weekly));
+        assert!(metrics.six_hour_pct() == six_hour);
+        assert!(metrics.weekly_pct() == weekly);
+    }
+
+    #[rstest]
+    #[case(101, 50, UsageMetricsError::SixHourOutOfRange(101))]
+    #[case(50, 101, UsageMetricsError::WeeklyOutOfRange(101))]
+    #[case(255, 50, UsageMetricsError::SixHourOutOfRange(255))]
+    #[case(50, 200, UsageMetricsError::WeeklyOutOfRange(200))]
+    fn test_invalid_usage_metrics(
+        #[case] six_hour: u8,
+        #[case] weekly: u8,
+        #[case] expected_error: UsageMetricsError,
+    ) {
+        let_assert!(Err(error) = UsageMetrics::try_new(six_hour, weekly));
+        assert!(error == expected_error);
+    }
+
+    #[test]
+    fn test_usage_metrics_new_succeeds() {
         let metrics = UsageMetrics::new(25, 50);
-        assert_eq!(metrics.six_hour_pct(), 25);
-        assert_eq!(metrics.weekly_pct(), 50);
+        assert!(metrics.six_hour_pct() == 25);
+        assert!(metrics.weekly_pct() == 50);
     }
 
     #[test]
     #[should_panic(expected = "UsageMetrics values must be in range 0-100")]
-    fn test_usage_metrics_panic_on_invalid() {
+    fn test_usage_metrics_new_panics_on_six_hour_overflow() {
         UsageMetrics::new(101, 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "UsageMetrics values must be in range 0-100")]
+    fn test_usage_metrics_new_panics_on_weekly_overflow() {
+        UsageMetrics::new(50, 101);
+    }
+
+    #[test]
+    fn test_interval_clamping_to_min() {
+        let config = PollerConfig {
+            min_interval_secs: 180,
+            max_interval_secs: 5400,
+            ..Default::default()
+        };
+        let mut poller = AdaptivePoller::new(config.clone());
+
+        poller.current_interval = Duration::from_secs(10); // Very low
+        let interval = poller.calculate_interval_for_state(TemperatureState::Blazing);
+
+        let clamped = interval.clamp(
+            Duration::from_secs(config.min_interval_secs),
+            Duration::from_secs(config.max_interval_secs),
+        );
+        assert!(clamped >= Duration::from_secs(config.min_interval_secs));
+    }
+
+    #[test]
+    fn test_interval_clamping_to_max() {
+        let config = PollerConfig {
+            min_interval_secs: 180,
+            max_interval_secs: 5400,
+            ..Default::default()
+        };
+        let mut poller = AdaptivePoller::new(config.clone());
+
+        poller.current_interval = Duration::from_secs(10000); // Very high
+        let interval = poller.calculate_interval_for_state(TemperatureState::Cold);
+
+        let clamped = interval.clamp(
+            Duration::from_secs(config.min_interval_secs),
+            Duration::from_secs(config.max_interval_secs),
+        );
+        assert!(clamped <= Duration::from_secs(config.max_interval_secs));
     }
 }

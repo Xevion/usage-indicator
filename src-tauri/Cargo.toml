@@ -41,3 +41,9 @@ dotenvy = "0.15.7"
 cookie = "0.18"
 imageproc = "0.25.0"
 ab_glyph = "0.2.32"
+
+[dev-dependencies]
+assert2 = "0.3"
+rstest = "0.23"
+mockito = "1.6"
+tokio-test = "0.4"

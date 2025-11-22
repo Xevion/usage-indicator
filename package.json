@@ -10,9 +10,9 @@
 		"preview": "vite preview",
 		"tauri": "dotenv -e .env -- tauri",
 		"typecheck": "tsc --noEmit",
-		"format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
-		"format:check": "biome check . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
-		"check": "tsc --noEmit && biome lint . && cargo clippy --manifest-path src-tauri/Cargo.toml"
+		"format": "biome check --write . && cargo fmt",
+		"format:check": "biome check . && cargo fmt --check",
+		"check": "tsc --noEmit && biome lint . && cargo clippy"
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2",

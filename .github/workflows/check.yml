@@ -25,8 +25,6 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - name: Cache Linux dependencies
         uses: awalsh128/cache-apt-pkgs-action@v1.6.0
@@ -35,10 +33,10 @@ jobs:
           version: 1.0
 
       - name: Check formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        run: cargo fmt --check
 
       - name: Run Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -46,7 +44,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Run tests with nextest
-        run: cargo nextest run --manifest-path src-tauri/Cargo.toml --all-features
+        run: cargo nextest run --all-features
 
   react-check:
     name: React Checks

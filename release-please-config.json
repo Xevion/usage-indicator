@@ -15,11 +15,15 @@
 	"bump-patch-for-minor-pre-major": true,
 	"include-v-in-tag": true,
 	"include-component-in-tag": false,
-	"plugins": ["sentence-case"],
+	"plugins": [
+		"sentence-case",
+		{
+			"type": "cargo-workspace"
+		}
+	],
 	"packages": {
-		".": {
+		"src-tauri": {
 			"release-type": "rust",
-			"exclude-paths": [".github", ".vscode"],
 			"extra-files": [
 				"package.json",
 				{

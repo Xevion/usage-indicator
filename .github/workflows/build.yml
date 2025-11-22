@@ -17,6 +17,8 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +78,7 @@ jobs:
           version: 1.0
 
       - name: Build Tauri app
+        id: tauri-build
         uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,6 +91,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target.rust_target }}
+
       - name: Prepare portable executable
         if: github.ref_type == 'tag'
         shell: bash
@@ -126,3 +130,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate build provenance attestations for Tauri installers
+        uses: actions/attest-build-provenance@v3
+        if: github.event.repository.fork == false && github.ref_type == 'tag'
+        continue-on-error: true
+        with:
+          subject-path: '${{ steps.tauri-build.outputs.artifactPaths }}'
+
+      - name: Generate build provenance attestations for portable executables
+        uses: actions/attest-build-provenance@v3
+        if: github.event.repository.fork == false && github.ref_type == 'tag' && env.PORTABLE_FILE != ''
+        continue-on-error: true
+        with:
+          subject-path: '${{ env.PORTABLE_FILE }}'
+
+      - name: Verify build provenance attestations
+        if: github.event.repository.fork == false && github.ref_type == 'tag' && env.PORTABLE_FILE != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "Verifying attestations for portable executable..."
+          gh attestation verify "${{ env.PORTABLE_FILE }}" --owner ${{ github.repository_owner }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -683,14 +683,14 @@ async fn start_polling(app: AppHandle, cancel_token: CancellationToken) {
     // Initialize adaptive poller with config from environment
     let poller_config = PollerConfig::from_env();
     info!(
-        "Adaptive poller initialized with config: {:?}",
-        poller_config
+        config = ?poller_config,
+        "Adaptive poller initialized"
     );
 
     let retry_config = RetryConfig::from_env();
     info!(
-        "Retry config: min={}s, max={}s, multiplier={}",
-        retry_config.min_delay_secs, retry_config.max_delay_secs, retry_config.multiplier
+        config = ?retry_config,
+        "Retry config initialized"
     );
 
     let mut poller = AdaptivePoller::new(poller_config);
@@ -718,9 +718,9 @@ async fn start_polling(app: AppHandle, cancel_token: CancellationToken) {
                         );
 
                         info!(
-                            "Usage data fetched - 6h: {}%, weekly: {}%",
-                            metrics.six_hour_pct(),
-                            metrics.weekly_pct()
+                            six_hour_pct = metrics.six_hour_pct(),
+                            weekly_pct = metrics.weekly_pct(),
+                            "Usage data fetched"
                         );
 
                         // Update state with fresh data

@@ -2,7 +2,7 @@
 
 A lightweight system tray application that monitors usage statistics for rate-limited cloud services. Currently supports Claude Pro subscription tracking with intelligent adaptive polling.
 
-See [ROADMAP.md](ROADMAP.md) for detailed future plans.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for detailed future plans.
 
 ## Features
 
@@ -39,6 +39,8 @@ cargo tauri dev
 cargo tauri build --release
 ```
 
+**For signed local builds:** To generate signed bundles with updater artifacts, set `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in your `.env` file. The private key should be stored at `~/.tauri/usage-indicator.key`.
+
 ## Setup
 
 Create a `.env` file in the repository root with your Claude credentials:
@@ -69,7 +71,7 @@ The app automatically adjusts polling frequency based on usage patterns&mdash;po
 
 ## What's Next
 
-See [ROADMAP.md](ROADMAP.md) for the complete vision, but highlights include:
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete vision, but highlights include:
 
 - **v0.2** - CI/CD, installers, auto-launch on startup
 - **v0.3** - Auto-extract credentials from browser, secure config storage
@@ -83,7 +85,7 @@ See [ROADMAP.md](ROADMAP.md) for the complete vision, but highlights include:
 
 - All release artifacts are cryptographically signed using minisign
 - Auto-updates (when enabled) verify signatures before installation
-- See [SIGNING.md](SIGNING.md) for technical details
+- See [docs/SIGNING.md](docs/SIGNING.md) for technical details
 
 **Installation Warnings:**
 

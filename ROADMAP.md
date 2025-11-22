@@ -24,7 +24,7 @@ Establish automated build and release infrastructure to make the app easily inst
 - [x] GitHub Actions workflow for automated builds
 - [x] Matrix builds for Windows, macOS, and Linux
 - [x] Automated testing on all platforms
-- [ ] Release artifact generation and signing
+- [x] Release artifact generation and signing
 - [x] Automated GitHub Releases publishing
 - [x] Version bumping automation
 
@@ -258,7 +258,7 @@ Add advanced features for power users and establish initial distribution channel
 
 #### Auto-Updater
 
-- [ ] Built-in update checker using Tauri updater
+- [x] Built-in update checker using Tauri updater
 - [ ] Background check for updates (configurable interval)
 - [ ] System notification when update available
 - [ ] In-tray menu: "Update Available" with changelog

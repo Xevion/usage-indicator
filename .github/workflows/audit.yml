@@ -23,11 +23,6 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Setup Rust (nightly for udeps)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -41,9 +36,6 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Install cargo-udeps
-        uses: taiki-e/install-action@cargo-udeps
-
       - name: Install cargo-machete
         uses: taiki-e/install-action@cargo-machete
 
@@ -52,15 +44,9 @@ jobs:
         with:
           tool: cargo-outdated
 
-      - name: Check for unused dependencies (udeps)
-        run: cargo +nightly udeps --all-targets
-        working-directory: src-tauri
-        continue-on-error: true
-
-      - name: Check for unused dependencies (machete)
+      - name: Check for unused dependencies
         run: cargo machete
         working-directory: src-tauri
-        continue-on-error: true
 
       - name: Check for outdated dependencies
         run: cargo outdated --root-deps-only --exit-code 1

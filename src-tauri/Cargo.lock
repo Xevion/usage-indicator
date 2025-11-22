@@ -753,8 +753,6 @@ dependencies = [
  "compression-core",
  "flate2",
  "memchr",
- "zstd",
- "zstd-safe",
 ]
 
 [[package]]
@@ -5622,12 +5620,10 @@ version = "0.1.2"
 dependencies = [
  "ab_glyph",
  "assert2",
- "cookie",
  "dotenvy",
  "image",
  "imageproc",
  "mockito",
- "rand 0.9.2",
  "rstest",
  "serde",
  "serde_json",
@@ -5640,7 +5636,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wreq",
- "wreq-util",
 ]
 
 [[package]]
@@ -6472,16 +6467,6 @@ dependencies = [
  "url",
  "webpki-root-certs 0.26.11",
  "windows-registry",
-]
-
-[[package]]
-name = "wreq-util"
-version = "2.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b28b3585973a8923c32c2f916e60b7b0d1cb4dd53e8cb2d7422c0ac001ef2487"
-dependencies = [
- "typed-builder",
- "wreq",
 ]
 
 [[package]]

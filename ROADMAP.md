@@ -30,9 +30,9 @@ Establish automated build and release infrastructure to make the app easily inst
 
 #### Platform-Specific Installers
 
-- [ ] **Windows:** `.msi` installer with proper registry integration
-- [ ] **macOS:** `.dmg` with drag-to-Applications UX
-- [ ] **Linux:** `.deb` and `.rpm` packages
+- [x] **Windows:** `.msi` installer with proper registry integration
+- [x] **macOS:** `.dmg` with drag-to-Applications UX
+- [x] **Linux:** `.deb` and `.rpm` packages
 
 #### Auto-launch on Startup
 

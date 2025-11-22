@@ -31,7 +31,45 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
-		"createUpdaterArtifacts": true
+		"createUpdaterArtifacts": true,
+		"publisher": "Ryan Walters",
+		"homepage": "https://github.com/Xevion/usage-indicator",
+		"shortDescription": "Monitor rate-limited cloud service usage",
+		"longDescription": "A system tray application for monitoring usage statistics of rate-limited cloud services.",
+		"windows": {
+			"nsis": {
+				"installMode": "currentUser",
+				"displayLanguageSelector": false
+			}
+		},
+		"macOS": {
+			"dmg": {
+				"windowSize": {
+					"width": 660,
+					"height": 400
+				},
+				"appPosition": {
+					"x": 180,
+					"y": 220
+				},
+				"applicationFolderPosition": {
+					"x": 480,
+					"y": 220
+				}
+			},
+			"minimumSystemVersion": "10.13",
+			"hardenedRuntime": true
+		},
+		"linux": {
+			"deb": {
+				"depends": []
+			},
+			"rpm": {
+				"depends": [],
+				"epoch": 0,
+				"release": "1"
+			}
+		}
 	},
 	"plugins": {
 		"updater": {

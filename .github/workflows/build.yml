@@ -76,7 +76,7 @@ jobs:
           version: 1.0
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -88,3 +88,41 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target.rust_target }}
+      - name: Prepare portable executable
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+
+          if [ "${{ matrix.target.os }}" = "linux" ]; then
+            # AppImage is the portable format for Linux
+            APPIMAGE=$(find src-tauri/target/${{ matrix.target.rust_target }}/release/bundle/appimage -name "*.AppImage" | head -n 1)
+            if [ -f "$APPIMAGE" ]; then
+              PORTABLE_NAME="usage-indicator-${VERSION}-linux-${{ matrix.target.arch }}.AppImage"
+              cp "$APPIMAGE" "$PORTABLE_NAME"
+              echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
+            fi
+          elif [ "${{ matrix.target.os }}" = "macos" ]; then
+            # .app.tar.gz is the portable format for macOS
+            APPTAR=$(find src-tauri/target/${{ matrix.target.rust_target }}/release/bundle/macos -name "*.app.tar.gz" | head -n 1)
+            if [ -f "$APPTAR" ]; then
+              PORTABLE_NAME="usage-indicator-${VERSION}-macos-${{ matrix.target.arch }}.app.tar.gz"
+              cp "$APPTAR" "$PORTABLE_NAME"
+              echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
+            fi
+          elif [ "${{ matrix.target.os }}" = "windows" ]; then
+            # Raw .exe is the portable format for Windows
+            PORTABLE_NAME="usage-indicator-${VERSION}-windows-${{ matrix.target.arch }}.exe"
+            cp src-tauri/target/${{ matrix.target.rust_target }}/release/usage-indicator.exe "$PORTABLE_NAME"
+            echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
+          fi
+
+      - name: Upload portable executable to release
+        if: github.ref_type == 'tag' && env.PORTABLE_FILE != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.PORTABLE_FILE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

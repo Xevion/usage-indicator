@@ -49,9 +49,19 @@ jobs:
         working-directory: src-tauri
 
       - name: Check for outdated dependencies
-        run: cargo outdated --root-deps-only --exit-code 1
+        run: |
+          set +e
+          OUTPUT=$(cargo outdated --root-deps-only --exit-code 1 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::warning title=Outdated Rust Dependencies::%0A${OUTPUT//$'\n'/%0A}"
+            echo "$OUTPUT"
+          fi
+
+          exit 0
         working-directory: src-tauri
-        continue-on-error: true
 
   react-quality:
     name: React Dependency Audit

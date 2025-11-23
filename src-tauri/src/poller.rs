@@ -5,20 +5,22 @@ use tracing::{debug, info};
 /// Usage metrics with 1% resolution
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UsageMetrics {
-    six_hour_pct: u8,
+    five_hour_pct: u8,
     weekly_pct: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageMetricsError {
-    SixHourOutOfRange(u8),
+    FiveHourOutOfRange(u8),
     WeeklyOutOfRange(u8),
 }
 
 impl std::fmt::Display for UsageMetricsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SixHourOutOfRange(val) => write!(f, "six_hour_pct {} is out of range 0-100", val),
+            Self::FiveHourOutOfRange(val) => {
+                write!(f, "five_hour_pct {} is out of range 0-100", val)
+            }
             Self::WeeklyOutOfRange(val) => write!(f, "weekly_pct {} is out of range 0-100", val),
         }
     }
@@ -28,27 +30,28 @@ impl std::error::Error for UsageMetricsError {}
 
 impl UsageMetrics {
     /// Try to create new UsageMetrics, returning an error if values are out of range (0-100)
-    pub fn try_new(six_hour_pct: u8, weekly_pct: u8) -> Result<Self, UsageMetricsError> {
-        if six_hour_pct > 100 {
-            return Err(UsageMetricsError::SixHourOutOfRange(six_hour_pct));
+    pub fn try_new(five_hour_pct: u8, weekly_pct: u8) -> Result<Self, UsageMetricsError> {
+        if five_hour_pct > 100 {
+            return Err(UsageMetricsError::FiveHourOutOfRange(five_hour_pct));
         }
         if weekly_pct > 100 {
             return Err(UsageMetricsError::WeeklyOutOfRange(weekly_pct));
         }
 
         Ok(Self {
-            six_hour_pct,
+            five_hour_pct,
             weekly_pct,
         })
     }
 
     /// Create new UsageMetrics, panicking if values are out of range (0-100)
-    pub fn new(six_hour_pct: u8, weekly_pct: u8) -> Self {
-        Self::try_new(six_hour_pct, weekly_pct).expect("UsageMetrics values must be in range 0-100")
+    pub fn new(five_hour_pct: u8, weekly_pct: u8) -> Self {
+        Self::try_new(five_hour_pct, weekly_pct)
+            .expect("UsageMetrics values must be in range 0-100")
     }
 
-    pub fn six_hour_pct(&self) -> u8 {
-        self.six_hour_pct
+    pub fn five_hour_pct(&self) -> u8 {
+        self.five_hour_pct
     }
 
     pub fn weekly_pct(&self) -> u8 {
@@ -63,7 +66,7 @@ pub enum TemperatureState {
     Cold,
     /// Recently had activity, now cooling down
     Cool,
-    /// 6h metric showing sustained increases
+    /// 5h metric showing sustained increases
     Warm,
     /// Weekly metric actively changing
     Hot,
@@ -85,9 +88,9 @@ pub struct PollerConfig {
     pub idle_to_cold_secs: u64,
 
     // Change thresholds (percentage points)
-    pub six_hour_sustained_threshold: u8,
+    pub five_hour_sustained_threshold: u8,
     pub weekly_sustained_threshold: u8,
-    pub six_hour_recent_threshold: u8,
+    pub five_hour_recent_threshold: u8,
 
     // AIMD multipliers
     pub warm_multiplier: f64,
@@ -106,9 +109,9 @@ impl Default for PollerConfig {
             context_window_secs: 3600, // 1 hour
             idle_to_cold_secs: 1800,   // 30 minutes
 
-            six_hour_sustained_threshold: 4,
+            five_hour_sustained_threshold: 4,
             weekly_sustained_threshold: 2,
-            six_hour_recent_threshold: 2,
+            five_hour_recent_threshold: 2,
 
             warm_multiplier: 0.7,
             hot_multiplier: 0.4,
@@ -198,8 +201,8 @@ impl TimeWindowedTracker {
         })
     }
 
-    fn calculate_six_hour_momentum(&self, window: Duration, now: Instant) -> u8 {
-        self.calculate_momentum(window, now, |m| m.six_hour_pct(), Some(10))
+    fn calculate_five_hour_momentum(&self, window: Duration, now: Instant) -> u8 {
+        self.calculate_momentum(window, now, |m| m.five_hour_pct(), Some(10))
     }
 
     fn calculate_weekly_momentum(&self, window: Duration, now: Instant) -> u8 {
@@ -216,7 +219,7 @@ impl TimeWindowedTracker {
 
         // Find most recent change in either metric
         for (timestamp, metrics) in samples.iter().skip(1) {
-            if metrics.six_hour_pct() != latest_metrics.six_hour_pct()
+            if metrics.five_hour_pct() != latest_metrics.five_hour_pct()
                 || metrics.weekly_pct() != latest_metrics.weekly_pct()
             {
                 return now.duration_since(**timestamp);
@@ -234,10 +237,10 @@ impl TimeWindowedTracker {
         let context_window = Duration::from_secs(config.context_window_secs);
 
         // TIER 1: Recency gate (last 10 minutes)
-        let recent_6h = self.calculate_six_hour_momentum(recency_window, now);
+        let recent_5h = self.calculate_five_hour_momentum(recency_window, now);
         let recent_weekly = self.calculate_weekly_momentum(recency_window, now);
 
-        if recent_6h == 0 && recent_weekly == 0 {
+        if recent_5h == 0 && recent_weekly == 0 {
             let idle_time = self.time_since_any_change(now);
 
             return if idle_time > Duration::from_secs(config.idle_to_cold_secs) {
@@ -248,19 +251,19 @@ impl TimeWindowedTracker {
         }
 
         // TIER 2: Recent activity detected - classify severity using context
-        let context_6h = self.calculate_six_hour_momentum(context_window, now);
+        let context_5h = self.calculate_five_hour_momentum(context_window, now);
         let context_weekly = self.calculate_weekly_momentum(context_window, now);
 
         let weekly_active_now = recent_weekly > 0;
-        let six_hour_active_now = recent_6h >= config.six_hour_recent_threshold;
+        let five_hour_active_now = recent_5h >= config.five_hour_recent_threshold;
         let weekly_sustained = context_weekly >= config.weekly_sustained_threshold;
-        let six_hour_sustained = context_6h >= config.six_hour_sustained_threshold;
+        let five_hour_sustained = context_5h >= config.five_hour_sustained_threshold;
 
-        if weekly_active_now && six_hour_active_now {
+        if weekly_active_now && five_hour_active_now {
             TemperatureState::Blazing
         } else if weekly_active_now || weekly_sustained {
             TemperatureState::Hot
-        } else if six_hour_active_now && six_hour_sustained {
+        } else if five_hour_active_now && five_hour_sustained {
             TemperatureState::Warm
         } else {
             TemperatureState::Cool
@@ -355,7 +358,7 @@ impl AdaptivePoller {
         debug!(
             state = ?self.current_state,
             interval_secs = self.current_interval.as_secs(),
-            six_hour_pct = metrics.six_hour_pct(),
+            five_hour_pct = metrics.five_hour_pct(),
             weekly_pct = metrics.weekly_pct(),
             "Calculated next interval"
         );
@@ -441,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn test_momentum_with_increasing_six_hour() {
+    fn test_momentum_with_increasing_five_hour() {
         let mut tracker = TimeWindowedTracker::new(Duration::from_secs(3600));
         let now = Instant::now();
 
@@ -450,7 +453,7 @@ mod tests {
         tracker.record_sample(UsageMetrics::new(13, 6), now + Duration::from_secs(120));
 
         let momentum = tracker
-            .calculate_six_hour_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
+            .calculate_five_hour_momentum(Duration::from_secs(180), now + Duration::from_secs(120));
         assert!(momentum == 3); // 10 → 11 → 13 = +3 total
     }
 
@@ -477,7 +480,7 @@ mod tests {
         tracker.record_sample(UsageMetrics::new(10, 5), now + Duration::from_secs(60));
 
         let momentum = tracker
-            .calculate_six_hour_momentum(Duration::from_secs(120), now + Duration::from_secs(60));
+            .calculate_five_hour_momentum(Duration::from_secs(120), now + Duration::from_secs(60));
         assert!(momentum == 0);
     }
 
@@ -486,36 +489,36 @@ mod tests {
     #[case(0, 0)]
     #[case(100, 100)]
     #[case(25, 50)]
-    fn test_valid_usage_metrics(#[case] six_hour: u8, #[case] weekly: u8) {
-        let_assert!(Ok(metrics) = UsageMetrics::try_new(six_hour, weekly));
-        assert!(metrics.six_hour_pct() == six_hour);
+    fn test_valid_usage_metrics(#[case] five_hour: u8, #[case] weekly: u8) {
+        let_assert!(Ok(metrics) = UsageMetrics::try_new(five_hour, weekly));
+        assert!(metrics.five_hour_pct() == five_hour);
         assert!(metrics.weekly_pct() == weekly);
     }
 
     #[rstest]
-    #[case(101, 50, UsageMetricsError::SixHourOutOfRange(101))]
+    #[case(101, 50, UsageMetricsError::FiveHourOutOfRange(101))]
     #[case(50, 101, UsageMetricsError::WeeklyOutOfRange(101))]
-    #[case(255, 50, UsageMetricsError::SixHourOutOfRange(255))]
+    #[case(255, 50, UsageMetricsError::FiveHourOutOfRange(255))]
     #[case(50, 200, UsageMetricsError::WeeklyOutOfRange(200))]
     fn test_invalid_usage_metrics(
-        #[case] six_hour: u8,
+        #[case] five_hour: u8,
         #[case] weekly: u8,
         #[case] expected_error: UsageMetricsError,
     ) {
-        let_assert!(Err(error) = UsageMetrics::try_new(six_hour, weekly));
+        let_assert!(Err(error) = UsageMetrics::try_new(five_hour, weekly));
         assert!(error == expected_error);
     }
 
     #[test]
     fn test_usage_metrics_new_succeeds() {
         let metrics = UsageMetrics::new(25, 50);
-        assert!(metrics.six_hour_pct() == 25);
+        assert!(metrics.five_hour_pct() == 25);
         assert!(metrics.weekly_pct() == 50);
     }
 
     #[test]
     #[should_panic(expected = "UsageMetrics values must be in range 0-100")]
-    fn test_usage_metrics_new_panics_on_six_hour_overflow() {
+    fn test_usage_metrics_new_panics_on_five_hour_overflow() {
         UsageMetrics::new(101, 50);
     }
 

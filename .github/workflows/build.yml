@@ -58,7 +58,7 @@ jobs:
             bundles: appimage
           - os: macos
             arch: x86_64
-            runner: macos-13
+            runner: macos-15-intel
             rust_target: x86_64-apple-darwin
             bundles: dmg
           - os: macos

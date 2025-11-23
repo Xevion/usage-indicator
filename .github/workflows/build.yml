@@ -12,7 +12,27 @@ env:
   RUSTC_WRAPPER: "sccache"
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Usage Indicator ${{ github.ref_name }}"
+          body: "See CHANGELOG.md for details."
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
+    needs: create-release
     name: Build (${{ matrix.target.os }} / ${{ matrix.target.arch }})
     runs-on: ${{ matrix.target.runner }}
     permissions:
@@ -27,22 +47,27 @@ jobs:
             arch: x86_64
             runner: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
+            bundles: appimage
           - os: macos
             arch: x86_64
             runner: macos-13
             rust_target: x86_64-apple-darwin
+            bundles: dmg
           - os: macos
             arch: aarch64
             runner: macos-latest
             rust_target: aarch64-apple-darwin
+            bundles: dmg
           - os: windows
             arch: x86_64
             runner: windows-latest
             rust_target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
           - os: windows
             arch: aarch64
             runner: windows-latest
             rust_target: aarch64-pc-windows-msvc
+            bundles: msi,nsis
 
     steps:
       - uses: actions/checkout@v4
@@ -85,71 +110,149 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Usage Indicator ${{ github.ref_name }}"
-          releaseBody: "See CHANGELOG.md for details."
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.target.rust_target }}
+          args: --target ${{ matrix.target.rust_target }} --bundles ${{ matrix.target.bundles }}
 
-      - name: Prepare portable executable
+      - name: Rename artifacts with consistent naming
         if: github.ref_type == 'tag'
         shell: bash
         run: |
           VERSION="${{ github.ref_name }}"
+          OS="${{ matrix.target.os }}"
+          ARCH="${{ matrix.target.arch }}"
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target.rust_target }}/release/bundle"
 
-          if [ "${{ matrix.target.os }}" = "linux" ]; then
-            # AppImage is the portable format for Linux
-            APPIMAGE=$(find src-tauri/target/${{ matrix.target.rust_target }}/release/bundle/appimage -name "*.AppImage" | head -n 1)
+          # Set platform name for files
+          case "$OS" in
+            linux) PLATFORM="linux" ;;
+            macos) PLATFORM="macOS" ;;
+            windows) PLATFORM="windows" ;;
+          esac
+
+          # Track renamed files for upload
+          RENAMED_FILES=()
+
+          # Linux: AppImage
+          if [ "$OS" = "linux" ]; then
+            APPIMAGE=$(find "$BUNDLE_DIR/appimage" -name "*.AppImage" -type f 2>/dev/null | head -n 1)
             if [ -f "$APPIMAGE" ]; then
-              PORTABLE_NAME="usage-indicator-${VERSION}-linux-${{ matrix.target.arch }}.AppImage"
-              cp "$APPIMAGE" "$PORTABLE_NAME"
-              echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
+              NEW_NAME="usage-indicator-${VERSION}-${PLATFORM}-${ARCH}.AppImage"
+              cp "$APPIMAGE" "$NEW_NAME"
+              RENAMED_FILES+=("$NEW_NAME")
+              if [ -f "${APPIMAGE}.sig" ]; then
+                cp "${APPIMAGE}.sig" "${NEW_NAME}.sig"
+                RENAMED_FILES+=("${NEW_NAME}.sig")
+              fi
             fi
-          elif [ "${{ matrix.target.os }}" = "macos" ]; then
-            # .app.tar.gz is the portable format for macOS
-            APPTAR=$(find src-tauri/target/${{ matrix.target.rust_target }}/release/bundle/macos -name "*.app.tar.gz" | head -n 1)
-            if [ -f "$APPTAR" ]; then
-              PORTABLE_NAME="usage-indicator-${VERSION}-macos-${{ matrix.target.arch }}.app.tar.gz"
-              cp "$APPTAR" "$PORTABLE_NAME"
-              echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
-            fi
-          elif [ "${{ matrix.target.os }}" = "windows" ]; then
-            # Raw .exe is the portable format for Windows
-            PORTABLE_NAME="usage-indicator-${VERSION}-windows-${{ matrix.target.arch }}.exe"
-            cp src-tauri/target/${{ matrix.target.rust_target }}/release/usage-indicator.exe "$PORTABLE_NAME"
-            echo "PORTABLE_FILE=$PORTABLE_NAME" >> $GITHUB_ENV
           fi
 
-      - name: Upload portable executable to release
-        if: github.ref_type == 'tag' && env.PORTABLE_FILE != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: ${{ env.PORTABLE_FILE }}
+          # macOS: DMG
+          if [ "$OS" = "macos" ]; then
+            DMG=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" -type f 2>/dev/null | head -n 1)
+            if [ -f "$DMG" ]; then
+              NEW_NAME="usage-indicator-${VERSION}-${PLATFORM}-${ARCH}.dmg"
+              cp "$DMG" "$NEW_NAME"
+              RENAMED_FILES+=("$NEW_NAME")
+            fi
+          fi
+
+          # Windows: MSI and NSIS
+          if [ "$OS" = "windows" ]; then
+            # NSIS installer
+            NSIS=$(find "$BUNDLE_DIR/nsis" -name "*-setup.exe" -type f 2>/dev/null | head -n 1)
+            if [ -f "$NSIS" ]; then
+              NEW_NAME="usage-indicator-${VERSION}-${PLATFORM}-${ARCH}.exe"
+              cp "$NSIS" "$NEW_NAME"
+              RENAMED_FILES+=("$NEW_NAME")
+              if [ -f "${NSIS}.sig" ]; then
+                cp "${NSIS}.sig" "${NEW_NAME}.sig"
+                RENAMED_FILES+=("${NEW_NAME}.sig")
+              fi
+            fi
+
+            # MSI installer
+            MSI=$(find "$BUNDLE_DIR/msi" -name "*.msi" -type f 2>/dev/null | head -n 1)
+            if [ -f "$MSI" ]; then
+              NEW_NAME="usage-indicator-${VERSION}-${PLATFORM}-${ARCH}.msi"
+              cp "$MSI" "$NEW_NAME"
+              RENAMED_FILES+=("$NEW_NAME")
+              if [ -f "${MSI}.sig" ]; then
+                cp "${MSI}.sig" "${NEW_NAME}.sig"
+                RENAMED_FILES+=("${NEW_NAME}.sig")
+              fi
+            fi
+          fi
+
+          # Handle latest.json
+          UPDATER_JSON="$BUNDLE_DIR/../latest.json"
+          if [ -f "$UPDATER_JSON" ]; then
+            # Update file paths in latest.json to match renamed files
+            VERSION_NO_V="${VERSION#v}"  # Remove 'v' prefix
+
+            # Read and update the JSON with proper file name replacements
+            # We need to update the URLs to use the new naming scheme while preserving extensions
+            cp "$UPDATER_JSON" "latest.json.tmp"
+
+            # Update URLs based on platform-specific patterns
+            if [ "$OS" = "windows" ]; then
+              sed -i.bak \
+                -e "s|usage-indicator_${VERSION_NO_V}_x64-setup\.exe|usage-indicator-${VERSION}-${PLATFORM}-x86_64.exe|g" \
+                -e "s|usage-indicator_${VERSION_NO_V}_x64_en-US\.msi|usage-indicator-${VERSION}-${PLATFORM}-x86_64.msi|g" \
+                -e "s|usage-indicator_${VERSION_NO_V}_arm64-setup\.exe|usage-indicator-${VERSION}-${PLATFORM}-aarch64.exe|g" \
+                -e "s|usage-indicator_${VERSION_NO_V}_arm64_en-US\.msi|usage-indicator-${VERSION}-${PLATFORM}-aarch64.msi|g" \
+                "latest.json.tmp"
+            elif [ "$OS" = "macos" ]; then
+              sed -i.bak \
+                -e "s|usage-indicator_${VERSION_NO_V}_x64\.dmg|usage-indicator-${VERSION}-${PLATFORM}-x86_64.dmg|g" \
+                -e "s|usage-indicator_${VERSION_NO_V}_aarch64\.dmg|usage-indicator-${VERSION}-${PLATFORM}-aarch64.dmg|g" \
+                "latest.json.tmp"
+            elif [ "$OS" = "linux" ]; then
+              sed -i.bak \
+                -e "s|usage-indicator_${VERSION_NO_V}_amd64\.AppImage|usage-indicator-${VERSION}-${PLATFORM}-x86_64.AppImage|g" \
+                "latest.json.tmp"
+            fi
+
+            mv "latest.json.tmp" "latest.json"
+            rm -f "latest.json.tmp.bak"
+            RENAMED_FILES+=("latest.json")
+          fi
+
+          # Save file list for next step
+          printf "%s\n" "${RENAMED_FILES[@]}" > renamed_files.txt
+
+          # Also save as GitHub output for upload step
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          printf "%s\n" "${RENAMED_FILES[@]}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload renamed artifacts to release
+        id: upload
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          if [ -f renamed_files.txt ]; then
+            while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                echo "Uploading $file..."
+                gh release upload "${{ github.ref_name }}" "$file" --clobber
+              fi
+            done < renamed_files.txt
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate build provenance attestations for Tauri installers
+      - name: Generate build provenance attestations
         uses: actions/attest-build-provenance@v3
         if: github.event.repository.fork == false && github.ref_type == 'tag'
         continue-on-error: true
-        with:
-          subject-path: '${{ steps.tauri-build.outputs.artifactPaths }}'
-
-      - name: Generate build provenance attestations for portable executables
-        uses: actions/attest-build-provenance@v3
-        if: github.event.repository.fork == false && github.ref_type == 'tag' && env.PORTABLE_FILE != ''
-        continue-on-error: true
-        with:
-          subject-path: '${{ env.PORTABLE_FILE }}'
-
-      - name: Verify build provenance attestations
-        if: github.event.repository.fork == false && github.ref_type == 'tag' && env.PORTABLE_FILE != ''
-        continue-on-error: true
         shell: bash
         run: |
-          echo "Verifying attestations for portable executable..."
-          gh attestation verify "${{ env.PORTABLE_FILE }}" --owner ${{ github.repository_owner }}
+          if [ -f renamed_files.txt ]; then
+            while IFS= read -r file; do
+              if [ -f "$file" ] && [[ ! "$file" == *.sig ]] && [[ ! "$file" == *.json ]]; then
+                echo "Generating attestation for $file..."
+                gh attestation attest "$file" --owner ${{ github.repository_owner }} || true
+              fi
+            done < renamed_files.txt
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

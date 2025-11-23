@@ -6,7 +6,9 @@
 		{ "type": "perf", "section": "Performance Improvements" },
 		{ "type": "refactor", "section": "Code Refactoring" },
 		{ "type": "docs", "section": "Documentation" },
-		{ "type": "chore", "section": "Miscellaneous", "hidden": true },
+		{ "type": "ci", "section": "Continuous Integration" },
+		{ "type": "build", "section": "Build System" },
+		{ "type": "chore", "section": "Miscellaneous" },
 		{ "type": "style", "section": "Styles", "hidden": true },
 		{ "type": "test", "section": "Tests", "hidden": true }
 	],
@@ -19,7 +21,7 @@
 	"packages": {
 		".": {
 			"release-type": "node",
-			"exclude-paths": [".github", ".vscode"],
+			"exclude-paths": [".vscode"],
 			"extra-files": [
 				{
 					"type": "json",

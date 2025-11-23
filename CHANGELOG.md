@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/Xevion/usage-indicator/compare/v0.1.4...v0.1.5) (2025-11-23)
+
+
+### Bug Fixes
+
+* Remove duplicate release creation overwriting release-please ([f8a48be](https://github.com/Xevion/usage-indicator/commit/f8a48be0ae7ea22d940f97f4306373b9e00a756a))
+
 ## [0.1.4](https://github.com/Xevion/usage-indicator/compare/v0.1.3...v0.1.4) (2025-11-23)
 
 

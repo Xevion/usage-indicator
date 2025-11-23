@@ -18,29 +18,8 @@ env:
   RUSTC_WRAPPER: "sccache"
 
 jobs:
-  create-release:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-    steps:
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Usage Indicator ${{ github.ref_name }}"
-          body: "See CHANGELOG.md for details."
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build:
-    needs: [create-release]
-    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: github.event_name == 'push' && github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     name: Build (${{ matrix.target.os }} / ${{ matrix.target.arch }})
     runs-on: ${{ matrix.target.runner }}
     permissions:

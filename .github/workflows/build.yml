@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (build without creating release)'
+        required: false
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,6 +19,7 @@ env:
 
 jobs:
   create-release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,7 +39,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    needs: create-release
+    needs: [create-release]
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     name: Build (${{ matrix.target.os }} / ${{ matrix.target.arch }})
     runs-on: ${{ matrix.target.runner }}
     permissions:
@@ -113,10 +121,16 @@ jobs:
           args: --target ${{ matrix.target.rust_target }} --bundles ${{ matrix.target.bundles }}
 
       - name: Rename artifacts with consistent naming
-        if: github.ref_type == 'tag'
         shell: bash
         run: |
-          VERSION="${{ github.ref_name }}"
+          # In dry-run mode (workflow_dispatch), use version from package.json
+          # In release mode (tag push), use the tag name
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="v$(grep -Po '"version": "\K[^"]*' package.json)"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+
           OS="${{ matrix.target.os }}"
           ARCH="${{ matrix.target.arch }}"
           BUNDLE_DIR="src-tauri/target/${{ matrix.target.rust_target }}/release/bundle"
@@ -224,21 +238,36 @@ jobs:
           printf "%s\n" "${RENAMED_FILES[@]}" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Upload renamed artifacts to release
-        id: upload
-        if: github.ref_type == 'tag'
+      - name: Upload artifacts to GitHub release
+        id: upload-release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         shell: bash
         run: |
           if [ -f renamed_files.txt ]; then
             while IFS= read -r file; do
               if [ -f "$file" ]; then
-                echo "Uploading $file..."
+                echo "Uploading $file to release..."
                 gh release upload "${{ github.ref_name }}" "$file" --clobber
               fi
             done < renamed_files.txt
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: |
+            *.AppImage
+            *.dmg
+            *.exe
+            *.msi
+            *.sig
+            latest.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Generate build provenance attestations
         if: github.event.repository.fork == false && github.ref_type == 'tag'

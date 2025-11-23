@@ -1,0 +1,41 @@
+# Pre-commit hooks configuration
+# Install: bun add -d pre-commit
+# Setup: bunx pre-commit install
+# Run manually: bunx pre-commit run --all-files
+
+repos:
+  # Workflow validation
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint
+
+  # Rust formatting
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # TypeScript type checking
+  - repo: local
+    hooks:
+      - id: typescript-check
+        name: TypeScript type check
+        entry: bunx tsc --noEmit
+        language: system
+        types: [ts, tsx]
+        pass_filenames: false
+
+  # Biome linting and formatting
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: Biome check
+        entry: bun format:check
+        language: system
+        types: [javascript, typescript, jsx, tsx, json]
+        pass_filenames: false

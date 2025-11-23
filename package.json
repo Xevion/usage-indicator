@@ -12,7 +12,8 @@
 		"typecheck": "tsc --noEmit",
 		"format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
 		"format:check": "biome check . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
-		"check": "tsc --noEmit && biome lint . && cargo clippy --manifest-path src-tauri/Cargo.toml"
+		"check": "tsc --noEmit && biome lint . && cargo clippy --manifest-path src-tauri/Cargo.toml",
+		"prepare": "command -v pre-commit >/dev/null 2>&1 && pre-commit install --install-hooks || echo 'pre-commit not found, skipping hook installation'"
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2",

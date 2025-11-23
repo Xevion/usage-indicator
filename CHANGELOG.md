@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/Xevion/usage-indicator/compare/v0.1.3...v0.1.4) (2025-11-23)
+
+
+### Bug Fixes
+
+* Make prepare script cross-platform for Windows CI ([4f3f260](https://github.com/Xevion/usage-indicator/commit/4f3f2604146ba41af9ab8dfca2a82df05b034f75))
+* Migrate macOS x86_64 builds to macos-15-intel runner ([505df53](https://github.com/Xevion/usage-indicator/commit/505df5364560bd2775aad27d2a1d9cd9e07d437f))
+* Update release-please to include all commit types and workflow changes ([08d1285](https://github.com/Xevion/usage-indicator/commit/08d12855564a142bcc6cd58a8c31edee9c108331))
+
 ## [0.1.3](https://github.com/Xevion/usage-indicator/compare/v0.1.2...v0.1.3) (2025-11-23)
 
 

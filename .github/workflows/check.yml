@@ -77,7 +77,7 @@ jobs:
       - name: Validate workflow files
         uses: reviewdog/action-actionlint@v1
         with:
-          fail_on_error: true
+          fail_level: error
           filter_mode: nofilter
 
   build-test:

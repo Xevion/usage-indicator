@@ -234,9 +234,11 @@ jobs:
           printf "%s\n" "${RENAMED_FILES[@]}" > renamed_files.txt
 
           # Also save as GitHub output for upload step
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          printf "%s\n" "${RENAMED_FILES[@]}" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "files<<EOF"
+            printf "%s\n" "${RENAMED_FILES[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts to GitHub release
         id: upload-release

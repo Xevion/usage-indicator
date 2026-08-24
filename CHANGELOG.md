@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.6](https://github.com/Xevion/usage-indicator/compare/v0.1.5...v0.1.6) (2026-08-24)
+
+
+### Performance Improvements
+
+* Remove sccache and optimize Rust cache for better hit rates ([29d63c9](https://github.com/Xevion/usage-indicator/commit/29d63c9bc43b99b85622314a56ea77fd2e81f81b))
+
+
+### Miscellaneous
+
+* Route security fixes through Renovate ([9cd3696](https://github.com/Xevion/usage-indicator/commit/9cd36966f43c63b9dd23ca599ad6bc99f07f42da))
+
 ## [0.1.5](https://github.com/Xevion/usage-indicator/compare/v0.1.4...v0.1.5) (2025-11-23)
 
 

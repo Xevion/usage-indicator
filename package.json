@@ -22,7 +22,7 @@
 		"react-dom": "^19.1.0"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.3.4",
+		"@biomejs/biome": "^2.6.6",
 		"@tauri-apps/cli": "^2",
 		"@tsconfig/node22": "^22.0.5",
 		"@types/node": "^24.10.1",
